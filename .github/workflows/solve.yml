@@ -1,0 +1,67 @@
+name: explanations
+on:
+  workflow_dispatch:
+    inputs:
+      family:
+        description: "File stem under content/pyq, e.g. rrb_group_d_typed"
+        required: true
+      batches:
+        description: "How many batches of 50 questions this run (the free plan is slow)"
+        required: false
+        default: "10"
+      start:
+        description: "Skip this many batches first (each run takes the next slice, so runs never repeat each other)"
+        required: false
+        default: "0"
+      model:
+        description: Gemini model (empty = gemini-2.5-flash-lite)
+        required: false
+      ref:
+        description: Branch of the private repository (empty = its default branch)
+        required: false
+
+permissions:
+  contents: read
+
+env:
+  APP_DIR: ${{ secrets.APP_DIR }}
+  SOURCE_REPO: ${{ secrets.SOURCE_REPO }}
+  M1: ${{ secrets.M1 }}
+  M2: ${{ secrets.M2 }}
+
+jobs:
+  translate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    defaults:
+      run:
+        working-directory: ${{ env.APP_DIR }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPO }}
+          ref: ${{ github.event.inputs.ref || vars.SOURCE_REF || 'aniketai/relaxed-albattani-6kjmc7' }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install pillow google-genai
+      - name: Explain
+        run: |
+          python pipeline/pyq/explain.py export --family "${{ github.event.inputs.family }}" --out /tmp/ex --batch 50
+          python pipeline/pyq/explain_llm.py /tmp/ex --start-batch "${{ github.event.inputs.start }}" --limit-batches "${{ github.event.inputs.batches }}" 2> /tmp/ex.err || true
+          echo "::notice::solved files: $(ls /tmp/ex/*.out.json 2>/dev/null | wc -l)"
+          echo "::notice::problems: $(sort /tmp/ex.err | uniq -c | head -3 | tr '\n' ' ')"
+          python pipeline/pyq/explain.py ingest --english-only /tmp/ex | sed 's/^/::notice::ingest: /'
+          tail -n 2 "pipeline/pyq/explanations/${{ github.event.inputs.family }}.jsonl" | cut -c1-300 | sed 's/^/::notice::sample: /'
+          python pipeline/pyq/explain.py status | grep "${{ github.event.inputs.family }}:" | sed 's/^/::notice::/'
+        continue-on-error: true
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ github.event.inputs.model || 'gemini-2.5-flash-lite' }}
+      - name: Keep the new explanations in the private repository
+        run: |
+          git config user.name "runner"; git config user.email "runner@users.noreply.github.com"
+          git checkout -b "data/explain-${{ github.run_id }}"
+          git add pipeline/pyq/explanations
+          git commit -m "Explanations"
+          git push origin "HEAD:refs/heads/data/explain-${{ github.run_id }}"
