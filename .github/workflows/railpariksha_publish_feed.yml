@@ -1,0 +1,37 @@
+# Publishes the app's daily current-affairs feed (railpariksha/content/ca_feed.json, the same file the app already shows to
+# every student) to data/8a9bd92d30c1/f.json in THIS repository, so the app can read it while the source repository is private.
+# Runs after the daily current-affairs build, or by hand. Only that one file is copied.
+name: RailPariksha publish feed
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: railpariksha-publish-feed
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch the feed from the source repository
+        env:
+          GH_TOKEN: ${{ secrets.SOURCE_TOKEN }}
+          SOURCE_REF: ${{ vars.SOURCE_REF || 'aniketai/relaxed-albattani-6kjmc7' }}
+        run: |
+          mkdir -p data/8a9bd92d30c1
+          gh api -H "Accept: application/vnd.github.raw" "repos/aniketbabar97-commits/MahaPariksha/contents/railpariksha/content/ca_feed.json?ref=$SOURCE_REF" > data/8a9bd92d30c1/f.json.new
+          python3 -c "import json; d = json.load(open('data/8a9bd92d30c1/f.json.new')); assert d, 'empty feed'; print('feed ok,', len(d), 'top-level entries')"
+          mv data/8a9bd92d30c1/f.json.new data/8a9bd92d30c1/f.json
+      - name: Commit the feed when it changed
+        run: |
+          git config user.name "RailPariksha runner"
+          git config user.email "noreply@users.noreply.github.com"
+          git add data/8a9bd92d30c1/f.json
+          if git diff --cached --quiet; then echo "feed unchanged"; exit 0; fi
+          git commit -m "Publish current-affairs feed"
+          git push

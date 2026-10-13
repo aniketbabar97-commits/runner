@@ -91,3 +91,12 @@ jobs:
         run: gh pr merge "${{ steps.cpr.outputs.pull-request-number }}" --repo aniketbabar97-commits/MahaPariksha --squash --delete-branch
         env:
           GH_TOKEN: ${{ secrets.SOURCE_TOKEN }}
+
+  # Publishes the day's feed where the app reads it (this public repository), so the source repository can stay private.
+  publish:
+    needs: draft
+    if: ${{ always() && needs.draft.result == 'success' }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/railpariksha_publish_feed.yml
+    secrets: inherit
