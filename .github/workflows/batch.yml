@@ -1,0 +1,83 @@
+name: old papers
+on:
+  workflow_dispatch:
+    inputs:
+      exam:
+        description: Exam name as in catalog.json, e.g. RRB Group D
+        required: true
+      years:
+        description: Years as in catalog.json, comma separated, e.g. 2019,2022
+        required: true
+      lang:
+        description: Sheet language (English or empty)
+        required: false
+        default: English
+      limit:
+        description: Only the first N questions (empty = all); use a small number to test the keys
+        required: false
+      backends:
+        description: gemini,claude (both = two independent readers)
+        required: false
+        default: gemini,claude
+      ref:
+        description: Branch of the private repository (empty = its default branch)
+        required: false
+
+permissions:
+  contents: read
+
+env:
+  APP_DIR: ${{ secrets.APP_DIR }}
+  SOURCE_REPO: ${{ secrets.SOURCE_REPO }}
+  M1: ${{ secrets.M1 }}
+  M2: ${{ secrets.M2 }}
+
+jobs:
+  type:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    defaults:
+      run:
+        working-directory: ${{ env.APP_DIR }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPO }}
+          ref: ${{ github.event.inputs.ref || vars.SOURCE_REF || 'aniketai/relaxed-albattani-6kjmc7' }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install pymupdf pillow numpy google-genai anthropic
+      - name: Download the sheets
+        run: python pipeline/pyq/fetch_old.py --exam "${{ github.event.inputs.exam }}" --years "${{ github.event.inputs.years }}" --lang "${{ github.event.inputs.lang }}" --out /tmp/sheets
+      - name: Cut the questions out of the pages
+        run: |
+          mkdir -p /tmp/cut
+          ls /tmp/sheets/*.pdf | xargs -P 3 -I{} python -W ignore pipeline/pyq/old_sheets.py {} --out /tmp/cut
+          echo "questions cut: $(cat /tmp/cut/*.jsonl | wc -l)"
+      - name: Type them
+        run: python pipeline/pyq/transcribe.py /tmp/cut --out /tmp/typed.jsonl --backends "${{ github.event.inputs.backends }}" ${{ github.event.inputs.limit && format('--limit {0}', github.event.inputs.limit) || '' }}
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      - name: Summary
+        run: |
+          python - <<'PY'
+          import json, collections
+          c = collections.Counter(json.loads(l)["status"] for l in open("/tmp/typed.jsonl") if l.strip())
+          print(dict(c))
+          PY
+      - name: Keep the result in the private repository
+        env:
+          EXAM: ${{ github.event.inputs.exam }}
+        run: |
+          slug=$(echo "$EXAM" | tr 'A-Z ' 'a-z_')
+          dest="pipeline/pyq/old/$slug"
+          mkdir -p "$dest"
+          cp /tmp/typed.jsonl "$dest/typed_${{ github.run_id }}.jsonl"
+          cp /tmp/cut/*.jsonl "$dest/" 2>/dev/null || true
+          git config user.name "runner"; git config user.email "runner@users.noreply.github.com"
+          git checkout -b "data/old-papers-${{ github.run_id }}"
+          git add "$dest"
+          git commit -m "Typed old papers: $EXAM"
+          git push origin "HEAD:refs/heads/data/old-papers-${{ github.run_id }}"

@@ -36,6 +36,7 @@ jobs:
       - run: python "$APP_DIR/pipeline/validate.py"
       - run: python "$APP_DIR/pipeline/test_telegram_bot.py"
       - run: python "$APP_DIR/pipeline/test_shorts.py"
+      - run: python "$APP_DIR/pipeline/pyq/test_transcribe.py"
       - run: python "$APP_DIR/pipeline/test_rrb_notices.py"
       - run: python "$APP_DIR/pipeline/test_site.py"
       - run: python "$APP_DIR/pipeline/test_text_quality.py"
