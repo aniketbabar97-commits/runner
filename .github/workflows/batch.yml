@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       sheets:
-        description: Folder of the sheets inside the private repository (it holds manifest.jsonl)
+        description: Folder of the sheets inside the private repository (it holds manifest.jsonl); "quota" only tests the keys
         required: true
       limit:
         description: Only the first N questions (empty = all); use a small number to test the keys
@@ -41,7 +41,14 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - run: pip install pillow google-genai anthropic
+      - name: Test the keys
+        if: ${{ github.event.inputs.sheets == 'quota' }}
+        run: python pipeline/pyq/quota_probe.py 40
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       - name: Type them
+        if: ${{ github.event.inputs.sheets != 'quota' }}
         run: |
           n=$(wc -l < "${{ github.event.inputs.sheets }}/manifest.jsonl")
           echo "::notice::sheets: $n"
@@ -57,6 +64,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       - name: Keep the result in the private repository
+        if: ${{ github.event.inputs.sheets != 'quota' }}
         run: |
           dest="pipeline/pyq/old/typed"
           mkdir -p "$dest"
