@@ -9,6 +9,10 @@ on:
         description: "How many batches of 20 questions this run (the free plan is slow, about 60 questions a minute)"
         required: false
         default: "10"
+      start:
+        description: "Skip this many batches first (each run takes the next slice, so runs never repeat each other)"
+        required: false
+        default: "0"
       backend:
         description: gemini or nllb
         required: false
@@ -51,7 +55,7 @@ jobs:
       - name: Translate
         run: |
           python pipeline/pyq/translate.py export --family "${{ github.event.inputs.family }}" --out /tmp/tr --batch 20
-          python pipeline/pyq/translate_llm.py /tmp/tr --backend "${{ github.event.inputs.backend }}" --limit-batches "${{ github.event.inputs.batches }}" 2> /tmp/tr.err || true
+          python pipeline/pyq/translate_llm.py /tmp/tr --backend "${{ github.event.inputs.backend }}" --start-batch "${{ github.event.inputs.start }}" --limit-batches "${{ github.event.inputs.batches }}" 2> /tmp/tr.err || true
           echo "::notice::translated files: $(ls /tmp/tr/*.out.json 2>/dev/null | wc -l)"
           echo "::notice::problems: $(sort /tmp/tr.err | uniq -c | head -3 | tr '\n' ' ')"
           python pipeline/pyq/translate.py ingest /tmp/tr | sed 's/^/::notice::ingest: /'
