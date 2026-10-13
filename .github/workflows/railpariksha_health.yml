@@ -1,0 +1,43 @@
+# RUNNER COPY (generated from the private repository's workflows; master at railpariksha/ops/runner/ there).
+# This public repository holds only workflow files, so every job runs on GitHub's free minutes for public repositories.
+# Each run checks the private repository out into the workspace with the secret SOURCE_TOKEN; nothing else is published.
+# Setup: railpariksha/docs/RUNNER.md in the private repository.
+# Daily health check of the website, Telegram, YouTube Shorts and the scheduler. On a problem it opens one issue titled
+# "Health check" (GitHub emails the owner); when everything is fine again it closes that issue. See
+# railpariksha/docs/OPERATIONS.md and pipeline/health_check.py.
+name: RailPariksha health check
+on:
+  schedule:
+    - cron: "0 3 * * *"   # about 08:30 IST (GitHub may start it late)
+    - cron: "0 15 * * *"  # about 20:30 IST
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+  checks: read
+  issues: write
+concurrency:
+  group: railpariksha-health
+  cancel-in-progress: false
+jobs:
+  check:
+    # Scheduled runs wait until the owner sets the variable RUNNER_LIVE=true (docs/RUNNER.md); manual runs always work.
+    if: ${{ github.event_name != 'schedule' || vars.RUNNER_LIVE == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: aniketbabar97-commits/MahaPariksha
+          ref: ${{ inputs.ref || vars.SOURCE_REF || 'aniketai/relaxed-albattani-6kjmc7' }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python railpariksha/pipeline/health_check.py --github
+        env:
+          GH_TOKEN: ${{ secrets.SOURCE_TOKEN }}
+          SOURCE_REPO: aniketbabar97-commits/MahaPariksha
+          RUNNER_REPO: ${{ github.repository }}
+          RUNNER_REPO: ${{ vars.RUNNER_REPO }}

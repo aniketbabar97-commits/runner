@@ -1,0 +1,36 @@
+# RUNNER COPY (generated from the private repository's workflows; master at railpariksha/ops/runner/ there).
+# This public repository holds only workflow files, so every job runs on GitHub's free minutes for public repositories.
+# Each run checks the private repository out into the workspace with the secret SOURCE_TOKEN; nothing else is published.
+# Setup: railpariksha/docs/RUNNER.md in the private repository.
+# Tells Bing and the other IndexNow search engines about the pages that change every day (home, current affairs),
+# a few minutes after the daily current-affairs run has deployed. Run with "all" once to send every page.
+# See railpariksha/pipeline/indexnow.py. Google reads the sitemap instead.
+name: RailPariksha search ping
+on:
+  schedule:
+    - cron: "40 3 * * *"
+  workflow_dispatch:
+    inputs:
+      all:
+        description: Send every page in the sitemap (use once, or after a big change)
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  ping:
+    # Scheduled runs wait until the owner sets the variable RUNNER_LIVE=true (docs/RUNNER.md); manual runs always work.
+    if: ${{ github.event_name != 'schedule' || vars.RUNNER_LIVE == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: aniketbabar97-commits/MahaPariksha
+          ref: ${{ inputs.ref || vars.SOURCE_REF || 'aniketai/relaxed-albattani-6kjmc7' }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python railpariksha/pipeline/indexnow.py ${{ github.event.inputs.all == 'true' && '--all' || '' }}

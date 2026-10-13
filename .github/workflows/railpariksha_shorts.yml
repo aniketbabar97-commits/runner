@@ -1,0 +1,88 @@
+# RUNNER COPY (generated from the private repository's workflows; master at railpariksha/ops/runner/ there).
+# This public repository holds only workflow files, so every job runs on GitHub's free minutes for public repositories.
+# Each run checks the private repository out into the workspace with the secret SOURCE_TOKEN; nothing else is published.
+# Setup: railpariksha/docs/RUNNER.md in the private repository.
+# Makes one YouTube Short from a previous-year question, six times a day (Hindi and English alternating), and uploads it when the YouTube secrets
+# exist (YT_CLIENT_ID, YT_CLIENT_SECRET, YT_REFRESH_TOKEN; see railpariksha/docs/YOUTUBE.md). Without them the
+# video is still built and kept as a workflow file, so it can be uploaded by hand. See pipeline/shorts.py.
+name: RailPariksha Shorts
+on:
+  # Started by the Cloudflare Worker `railpariksha-scheduler` (railpariksha/ops/scheduler_worker.js, set up as in
+  # railpariksha/docs/SCHEDULER.md) at 07:00, 10:00, 13:00, 16:00, 19:00 and 22:00 IST with slots 1 to 6. YouTube's
+  # default API quota (10,000 units, 1,600 per upload) allows six uploads a day at most. GitHub's own `schedule:` is not
+  # used: it ran hours late or not at all.
+  workflow_dispatch:
+    inputs:
+      slot:
+        description: Which slot of the day (1 = 07:00 ... 6 = 22:00 IST)
+        type: choice
+        options: ["1", "2", "3", "4", "5", "6"]
+        default: "1"
+      lang:
+        description: Language (auto alternates, and flips every day)
+        type: choice
+        options: [auto, hi, en]
+        default: auto
+      force:
+        description: Run even if the same slot already ran in the last hour (normally that is skipped, so nothing is uploaded twice)
+        type: boolean
+        default: false
+run-name: Shorts ${{ inputs.slot }} ${{ inputs.lang }}
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: railpariksha-shorts
+  cancel-in-progress: false
+jobs:
+  short:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+      YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+      YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+      TELEGRAM_URL: ${{ vars.TELEGRAM_URL }}
+      SLOT: ${{ github.event.inputs.slot }}
+      SHORTS_VOICE_HI: ${{ vars.SHORTS_VOICE_HI }}
+      SHORTS_VOICE_EN: ${{ vars.SHORTS_VOICE_EN }}
+      LANG_CHOICE: ${{ github.event.inputs.lang || 'auto' }}
+    steps:
+      - id: dup
+        if: ${{ inputs.force != true }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          since=$(date -u -d '55 minutes ago' +%Y-%m-%dT%H:%M:%SZ)
+          name="Shorts ${{ inputs.slot }} ${{ inputs.lang }}"
+          # GitHub's own API can answer 502 now and then; retry, and if it still fails treat it as 'nothing posted yet'
+          # rather than failing the whole post (a missed post is worse than a rare double one).
+          n=""; for try in 1 2 3; do n=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/railpariksha_shorts.yml/runs?created=%3E%3D$since&per_page=50" --jq "[.workflow_runs[] | select(.display_title==\"$name\" and .id < $GITHUB_RUN_ID) | select(.status!=\"completed\" or .conclusion==\"success\")] | length") && break; n=""; sleep 5; done; n=${n:-0}
+          if [ "$n" -gt 0 ]; then
+            echo "::warning::\"$name\" already ran in the last 55 minutes; skipping so nothing is uploaded twice (tick force to run anyway)"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.dup.outputs.skip != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: aniketbabar97-commits/MahaPariksha
+          ref: ${{ inputs.ref || vars.SOURCE_REF || 'aniketai/relaxed-albattani-6kjmc7' }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+          persist-credentials: false
+      - if: steps.dup.outputs.skip != 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - if: steps.dup.outputs.skip != 'true'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg libraqm0
+      - if: steps.dup.outputs.skip != 'true'
+        run: pip install -q pillow requests gtts edge-tts
+      - if: steps.dup.outputs.skip != 'true'
+        run: python railpariksha/pipeline/shorts.py --slot "$SLOT" --lang "$LANG_CHOICE" --out short_out
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.dup.outputs.skip != 'true'
+        with:
+          name: short-${{ env.SLOT }}
+          path: short_out/*.mp4
+          retention-days: 7
+          if-no-files-found: ignore

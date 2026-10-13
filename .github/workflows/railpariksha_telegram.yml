@@ -1,0 +1,81 @@
+# RUNNER COPY (generated from the private repository's workflows; master at railpariksha/ops/runner/ there).
+# This public repository holds only workflow files, so every job runs on GitHub's free minutes for public repositories.
+# Each run checks the private repository out into the workspace with the secret SOURCE_TOKEN; nothing else is published.
+# Setup: railpariksha/docs/RUNNER.md in the private repository.
+# Posts the RailPariksha Telegram channel's daily schedule (quiz polls, flashcards and cheat sheets, a study
+# tip, the Sunday recap). The morning current-affairs card is posted by the daily current-affairs workflow, right
+# after the day's feed is built. Everything comes from content already in the repo; see pipeline/telegram_bot.py.
+# The owner's only work: create the channel, add the bot as an admin (post, pin, change channel info), and set the
+# secrets TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID. Without them every run ends quietly.
+name: RailPariksha Telegram
+on:
+  # Started by the Cloudflare Worker `railpariksha-scheduler` (railpariksha/ops/scheduler_worker.js, set up as in
+  # railpariksha/docs/SCHEDULER.md): every hour 06:00 to 23:00 IST it dispatches `quiz`, except 11:00 `fact`,
+  # 17:00 `tip` and Sunday 19:00 `weekly`. GitHub's own `schedule:` is not used: it ran hours late or not at all.
+  workflow_dispatch:
+    inputs:
+      slot:
+        description: Which post to send now
+        type: choice
+        default: announce
+        options: [announce, setup, refresh, ca, quiz, poll_morning, fact, poll_noon, tip, poll_evening, weekly]
+      text:
+        description: Text for "announce" (plain text, sent as written)
+        required: false
+      force:
+        description: Post even if the same kind of post went out in the last 40 minutes (normally that is skipped, so nothing is posted twice)
+        type: boolean
+        default: false
+run-name: Telegram ${{ inputs.slot }}
+
+permissions:
+  contents: read
+  actions: read
+
+# Posts must not overlap or be cancelled halfway.
+concurrency:
+  group: railpariksha-telegram
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - id: slot
+        run: |
+          s="${{ github.event.inputs.slot }}"
+          # The scheduled kinds are posted once: if the same kind already went out (or is running) in the last 40
+          # minutes, skip, so a double trigger never posts twice. "force" overrides; setup, refresh and announce never skip.
+          case "$s" in quiz|fact|tip|weekly)
+            if [ "${{ inputs.force }}" != "true" ]; then
+              since=$(date -u -d '40 minutes ago' +%Y-%m-%dT%H:%M:%SZ)
+              # GitHub's own API can answer 502 now and then; retry, and if it still fails treat it as 'nothing posted yet'
+              # rather than failing the whole post (a missed post is worse than a rare double one).
+              n=""; for try in 1 2 3; do n=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/railpariksha_telegram.yml/runs?created=%3E%3D$since&per_page=50" --jq "[.workflow_runs[] | select(.display_title==\"Telegram $s\" and .id < $GITHUB_RUN_ID) | select(.status!=\"completed\" or .conclusion==\"success\")] | length") && break; n=""; sleep 5; done; n=${n:-0}
+              if [ "$n" -gt 0 ]; then echo "::warning::a $s post already went out in the last 40 minutes; skipping (tick force to post anyway)"; s=none; fi
+            fi ;;
+          esac
+          echo "slot=$s" >> "$GITHUB_OUTPUT"
+          if [ "$s" = none ]; then echo "::notice::nothing to post at this hour"
+          elif [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then echo "have=true" >> "$GITHUB_OUTPUT"
+          else echo "::notice::TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID not set; nothing to post."; fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      - if: steps.slot.outputs.have == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: aniketbabar97-commits/MahaPariksha
+          ref: ${{ inputs.ref || vars.SOURCE_REF || 'aniketai/relaxed-albattani-6kjmc7' }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+          persist-credentials: false
+      - if: steps.slot.outputs.have == 'true'
+        uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - if: steps.slot.outputs.have == 'true'
+        run: python railpariksha/pipeline/telegram_bot.py --slot "${{ steps.slot.outputs.slot }}" ${ANNOUNCE:+--text "$ANNOUNCE"}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ANNOUNCE: ${{ github.event.inputs.text }}
