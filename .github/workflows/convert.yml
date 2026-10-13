@@ -3,10 +3,10 @@ on:
   workflow_dispatch:
     inputs:
       family:
-        description: File stem under content/pyq, e.g. rrb_group_d_typed
+        description: "File stem under content/pyq, e.g. rrb_group_d_typed"
         required: true
       batches:
-        description: How many batches of 20 questions this run (the free plan is slow: about 60 questions a minute)
+        description: "How many batches of 20 questions this run (the free plan is slow, about 60 questions a minute)"
         required: false
         default: "10"
       backend:
