@@ -9,9 +9,12 @@ on:
         description: Only the first N questions (empty = all); use a small number to test the keys
         required: false
       backends:
-        description: gemini,claude (both = two independent readers)
+        description: gemini (one reader) or gemini,claude (two independent readers; needs ANTHROPIC_API_KEY)
         required: false
-        default: gemini,claude
+        default: gemini
+      model:
+        description: Gemini model (empty = gemini-2.5-flash-lite)
+        required: false
       ref:
         description: Branch of the private repository (empty = its default branch)
         required: false
@@ -68,6 +71,7 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_MODEL: ${{ github.event.inputs.model || 'gemini-2.5-flash-lite' }}
       - name: Keep the result in the private repository
         if: ${{ github.event.inputs.sheets != 'quota' && github.event.inputs.sheets != 'open' }}
         run: |
