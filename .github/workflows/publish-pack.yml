@@ -1,0 +1,41 @@
+name: Publish pack
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch of the private repository (empty = its default branch)
+        required: false
+
+permissions:
+  contents: write
+
+env:
+  APP_DIR: ${{ secrets.APP_DIR }}
+  SOURCE_REPO: ${{ secrets.SOURCE_REPO }}
+  M1: ${{ secrets.M1 }}
+  M2: ${{ secrets.M2 }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPO }}
+          ref: ${{ github.event.inputs.ref || vars.SOURCE_REF || 'aniketai/relaxed-albattani-6kjmc7' }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Build the full PYQ pack
+        working-directory: ${{ env.APP_DIR }}/app
+        run: python ../pipeline/build_bundle.py --pyq-full ../pyq_pack
+      - name: Publish as release assets
+        working-directory: ${{ env.APP_DIR }}/pyq_pack
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for f in topics/*.json; do mv "$f" "topics__$(basename "$f")"; done
+          gh release view d6c94d243b115 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || gh release create d6c94d243b115 --repo "$GITHUB_REPOSITORY" --prerelease --title "data (auto-updated)" --notes "App data. Not a release of the app."
+          gh release upload d6c94d243b115 --repo "$GITHUB_REPOSITORY" *.json --clobber
+          echo "uploaded $(ls *.json | wc -l) files"

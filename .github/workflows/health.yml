@@ -1,0 +1,40 @@
+name: health check
+on:
+  schedule:
+    - cron: "0 3 * * *"   # about 08:30 IST (GitHub may start it late)
+    - cron: "0 15 * * *"  # about 20:30 IST
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+  checks: read
+  issues: write
+concurrency:
+  group: health
+  cancel-in-progress: false
+env:
+  APP_DIR: ${{ secrets.APP_DIR }}
+  SOURCE_REPO: ${{ secrets.SOURCE_REPO }}
+  M1: ${{ secrets.M1 }}
+  M2: ${{ secrets.M2 }}
+
+jobs:
+  check:
+    if: ${{ github.event_name != 'schedule' || vars.RUNNER_LIVE == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPO }}
+          ref: ${{ vars.SOURCE_REF || 'aniketai/relaxed-albattani-6kjmc7' }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python "$APP_DIR/pipeline/health_check.py" --github
+        env:
+          GH_TOKEN: ${{ secrets.SOURCE_TOKEN }}
+          SOURCE_REPO: ${{ secrets.SOURCE_REPO }}
+          RUNNER_REPO: ${{ github.repository }}

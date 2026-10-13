@@ -1,0 +1,40 @@
+name: publish feed
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-feed
+  cancel-in-progress: false
+
+env:
+  APP_DIR: ${{ secrets.APP_DIR }}
+  SOURCE_REPO: ${{ secrets.SOURCE_REPO }}
+  M1: ${{ secrets.M1 }}
+  M2: ${{ secrets.M2 }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch the feed from the source repository
+        env:
+          GH_TOKEN: ${{ secrets.SOURCE_TOKEN }}
+          SOURCE_REF: ${{ vars.SOURCE_REF || 'aniketai/relaxed-albattani-6kjmc7' }}
+        run: |
+          mkdir -p data/8a9bd92d30c1
+          gh api -H "Accept: application/vnd.github.raw" "repos/$SOURCE_REPO/contents/$APP_DIR/content/ca_feed.json?ref=$SOURCE_REF" > data/8a9bd92d30c1/f.json.new
+          python3 -c "import json; d = json.load(open('data/8a9bd92d30c1/f.json.new')); assert d, 'empty feed'; print('feed ok,', len(d), 'top-level entries')"
+          mv data/8a9bd92d30c1/f.json.new data/8a9bd92d30c1/f.json
+      - name: Commit the feed when it changed
+        run: |
+          git config user.name "runner"
+          git config user.email "noreply@users.noreply.github.com"
+          git add data/8a9bd92d30c1/f.json
+          if git diff --cached --quiet; then echo "feed unchanged"; exit 0; fi
+          git commit -m "Publish current-affairs feed"
+          git push

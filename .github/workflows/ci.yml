@@ -1,0 +1,173 @@
+name: CI
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch or commit of the private repository to test
+        required: true
+      base:
+        description: Compare with this branch to decide what changed (empty = the default branch; "all" = run every job)
+        required: false
+        default: ""
+
+concurrency:
+  group: ci-${{ inputs.ref }}
+  cancel-in-progress: true
+
+
+env:
+  APP_DIR: ${{ secrets.APP_DIR }}
+  SOURCE_REPO: ${{ secrets.SOURCE_REPO }}
+  M1: ${{ secrets.M1 }}
+  M2: ${{ secrets.M2 }}
+
+jobs:
+  content:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPO }}
+          ref: ${{ github.event.inputs.ref || vars.SOURCE_REF || 'aniketai/relaxed-albattani-6kjmc7' }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: python "$APP_DIR/pipeline/validate.py"
+      - run: python "$APP_DIR/pipeline/test_telegram_bot.py"
+      - run: python "$APP_DIR/pipeline/test_shorts.py"
+      - run: python "$APP_DIR/pipeline/test_rrb_notices.py"
+      - run: python "$APP_DIR/pipeline/test_site.py"
+      - run: python "$APP_DIR/pipeline/test_text_quality.py"
+      - run: python "$APP_DIR/pipeline/build_ca_feed.py" --check
+
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.filter.outputs.app }}
+      flutter: ${{ steps.filter.outputs.flutter }}
+      sha: ${{ steps.sha.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPO }}
+          ref: ${{ github.event.inputs.ref || vars.SOURCE_REF || 'aniketai/relaxed-albattani-6kjmc7' }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+          persist-credentials: false
+          fetch-depth: 0
+      - id: sha
+        env:
+          GH_TOKEN: ${{ secrets.SOURCE_TOKEN }}
+        run: |
+          sha=$(git rev-parse HEAD)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          gh api "repos/$SOURCE_REPO/statuses/$sha" -f state=pending -f context=runner/ci -f description="Running on the runner repository" -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >/dev/null || echo "::warning::could not post the pending status"
+      - id: filter
+        env:
+          BASE: ${{ inputs.base }}
+        run: |
+          if [ "$BASE" = "all" ]; then
+            echo "app=true" >> "$GITHUB_OUTPUT"
+            echo "flutter=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "$BASE" ]; then BASE=aniketai/relaxed-albattani-6kjmc7; fi
+          CHANGED=$(git diff --name-only "origin/$BASE...HEAD")
+          echo "$CHANGED"
+          if echo "$CHANGED" | grep -qE "^($APP_DIR/app/|$APP_DIR/pipeline/build_bundle\.py)"; then
+            echo "app=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "app=false" >> "$GITHUB_OUTPUT"
+          fi
+          if echo "$CHANGED" | grep -qE "^($APP_DIR/(app|content)/|$APP_DIR/pipeline/build_bundle\.py)"; then
+            echo "flutter=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "flutter=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  app:
+    runs-on: ubuntu-latest
+    needs: [content, changes]
+    if: needs.changes.outputs.flutter == 'true'
+    defaults:
+      run:
+        working-directory: ${{ env.APP_DIR }}/app
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPO }}
+          ref: ${{ github.event.inputs.ref || vars.SOURCE_REF || 'aniketai/relaxed-albattani-6kjmc7' }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - uses: subosito/flutter-action@v2
+        with: { channel: stable, cache: true }
+      - run: python ../pipeline/build_bundle.py
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+      - if: needs.changes.outputs.app == 'true'
+        run: flutter build apk --release --split-per-abi
+  e2e_test:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: ${{ env.APP_DIR }}/app
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPO }}
+          ref: ${{ github.event.inputs.ref || vars.SOURCE_REF || 'aniketai/relaxed-albattani-6kjmc7' }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - uses: subosito/flutter-action@v2
+        with: { channel: stable, cache: true }
+      - run: python ../pipeline/build_bundle.py
+      - run: flutter pub get
+      - name: Free disk space for the emulator's AVD
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/lib/android/sdk/ndk
+          sudo docker image prune -af || true
+          df -h /
+      - name: Enable KVM for emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Boot emulator and run the golden-path e2e test in release mode
+        timeout-minutes: 15
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          force-avd-creation: false
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: cd ${{ env.APP_DIR }}/app && flutter drive --driver=test_driver/integration_test.dart --target=integration_test/golden_path_test.dart -d emulator-5554 --profile
+
+  report:
+    runs-on: ubuntu-latest
+    needs: [content, changes, app, e2e_test]
+    if: always()
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.SOURCE_TOKEN }}
+          SHA: ${{ needs.changes.outputs.sha }}
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          if [ -z "$SHA" ]; then echo "::error::no commit to report to"; exit 1; fi
+          state=success
+          for r in $RESULTS; do case "$r" in failure|cancelled) state=failure ;; esac; done
+          gh api "repos/$SOURCE_REPO/statuses/$SHA" -f state=$state -f context=runner/ci -f description="Runner CI: $state ($RESULTS)" -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >/dev/null && echo "reported $state for $SHA" || echo "::warning::could not post the status to the source commit (the SOURCE_TOKEN needs the Commit statuses permission, read and write); the result of this run is $state"
+          [ "$state" = success ]

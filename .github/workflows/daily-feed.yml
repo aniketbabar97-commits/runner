@@ -1,0 +1,91 @@
+name: Daily feed
+on:
+  schedule:
+    - cron: "15 1 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  APP_DIR: ${{ secrets.APP_DIR }}
+  SOURCE_REPO: ${{ secrets.SOURCE_REPO }}
+  M1: ${{ secrets.M1 }}
+  M2: ${{ secrets.M2 }}
+
+jobs:
+  draft:
+    if: ${{ github.event_name != 'schedule' || vars.RUNNER_LIVE == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ env.APP_DIR }}
+    steps:
+      - id: keys
+        working-directory: .
+        run: |
+          if [ -n "$GEMINI_API_KEY$GROK_API_KEY" ]; then echo "have=true" >> "$GITHUB_OUTPUT"
+          else echo "::notice::No GEMINI_API_KEY/GROK_API_KEY secret set; skipping daily current affairs."; fi
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
+      - if: steps.keys.outputs.have == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPO }}
+          ref: ${{ vars.SOURCE_REF || 'aniketai/relaxed-albattani-6kjmc7' }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+          persist-credentials: false
+      - if: steps.keys.outputs.have == 'true'
+        uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - if: steps.keys.outputs.have == 'true'
+        run: pip install -r pipeline/requirements.txt
+      - if: steps.keys.outputs.have == 'true'
+        run: python pipeline/ca_daily.py
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      - if: steps.keys.outputs.have == 'true'
+        run: python pipeline/validate.py
+      - if: steps.keys.outputs.have == 'true'
+        run: python pipeline/build_ca_feed.py
+      - if: steps.keys.outputs.have == 'true'
+        run: sudo apt-get install -y --no-install-recommends libraqm0 || true
+      - if: steps.keys.outputs.have == 'true'
+        continue-on-error: true
+        run: python pipeline/telegram_bot.py --slot ca
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      - if: steps.keys.outputs.have == 'true'
+        id: cpr
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.SOURCE_TOKEN }}
+          branch: content/daily-feed
+          title: "Daily feed: ${{ github.run_id }}"
+          commit-message: "Add verified daily current-affairs questions"
+          body: |
+            Automatically drafted from news feeds, then cross-checked by an independent model
+            (and gated by Claude when ANTHROPIC_API_KEY is set) via a blind re-solve against the
+            source text. Review the questions (source links are in `src`) and merge to publish.
+          add-paths: |
+            ${{ env.APP_DIR }}/content/bank/current_affairs_auto.json
+            ${{ env.APP_DIR }}/content/ca_feed.json
+      - if: steps.keys.outputs.have == 'true' && steps.cpr.outputs.pull-request-number != ''
+        working-directory: .
+        continue-on-error: true
+        run: gh pr merge "${{ steps.cpr.outputs.pull-request-number }}" --repo "$SOURCE_REPO" --squash --delete-branch
+        env:
+          GH_TOKEN: ${{ secrets.SOURCE_TOKEN }}
+
+  publish:
+    needs: draft
+    if: ${{ always() && needs.draft.result == 'success' }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/publish-feed.yml
+    secrets: inherit
