@@ -2,16 +2,9 @@ name: old papers
 on:
   workflow_dispatch:
     inputs:
-      exam:
-        description: Exam name as in catalog.json, e.g. RRB Group D
+      sheets:
+        description: Folder of the sheets inside the private repository (it holds manifest.jsonl)
         required: true
-      years:
-        description: Years as in catalog.json, comma separated, e.g. 2019,2022
-        required: true
-      lang:
-        description: Sheet language (English or empty)
-        required: false
-        default: English
       limit:
         description: Only the first N questions (empty = all); use a small number to test the keys
         required: false
@@ -47,44 +40,29 @@ jobs:
           token: ${{ secrets.SOURCE_TOKEN }}
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - run: pip install pymupdf pillow numpy google-genai anthropic
-      - name: Download the sheets
-        run: |
-          python pipeline/pyq/fetch_old.py --exam "${{ github.event.inputs.exam }}" --years "${{ github.event.inputs.years }}" --lang "${{ github.event.inputs.lang }}" --out /tmp/sheets | tee /tmp/fetch.log
-          n=$(ls /tmp/sheets/*.pdf 2>/dev/null | wc -l)
-          if [ "$n" -eq 0 ]; then echo "::error::no sheets downloaded: $(tail -c 300 /tmp/fetch.log | tr '\n' ' ')"; exit 1; fi
-          echo "::notice::sheets downloaded: $n ($(head -c 200 /tmp/fetch.log | tr '\n' ' '))"
-      - name: Cut the questions out of the pages
-        run: |
-          mkdir -p /tmp/cut
-          ls /tmp/sheets/*.pdf | xargs -P 3 -I{} python -W ignore pipeline/pyq/old_sheets.py {} --out /tmp/cut
-          c=$(cat /tmp/cut/*.jsonl 2>/dev/null | wc -l)
-          if [ "$c" -eq 0 ]; then echo "::error::no questions cut from the sheets"; exit 1; fi
-          echo "::notice::questions cut: $c"
+      - run: pip install pillow google-genai anthropic
       - name: Type them
-        run: python pipeline/pyq/transcribe.py /tmp/cut --out /tmp/typed.jsonl --backends "${{ github.event.inputs.backends }}" ${{ github.event.inputs.limit && format('--limit {0}', github.event.inputs.limit) || '' }}
+        run: |
+          n=$(wc -l < "${{ github.event.inputs.sheets }}/manifest.jsonl")
+          echo "::notice::sheets: $n"
+          python pipeline/pyq/transcribe.py type "${{ github.event.inputs.sheets }}" --out /tmp/typed.jsonl --backends "${{ github.event.inputs.backends }}" ${{ github.event.inputs.limit && format('--limit {0}', github.event.inputs.limit) || '' }} 2> /tmp/typed.err || true
+          python - <<'PY'
+          import json, collections
+          rows = [json.loads(l) for l in open("/tmp/typed.jsonl") if l.strip()]
+          print("::notice::typed: " + str(dict(collections.Counter(r["status"] for r in rows))))
+          err = open("/tmp/typed.err").read().strip().splitlines()
+          print("::notice::problems: " + str(dict(collections.Counter(err))) if err else "::notice::problems: none")
+          PY
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      - name: Summary
-        run: |
-          python - <<'PY'
-          import json, collections
-          c = collections.Counter(json.loads(l)["status"] for l in open("/tmp/typed.jsonl") if l.strip())
-          print(dict(c))
-          print("::notice::typed: " + str(dict(c)))
-          PY
       - name: Keep the result in the private repository
-        env:
-          EXAM: ${{ github.event.inputs.exam }}
         run: |
-          slug=$(echo "$EXAM" | tr 'A-Z ' 'a-z_')
-          dest="pipeline/pyq/old/$slug"
+          dest="pipeline/pyq/old/typed"
           mkdir -p "$dest"
           cp /tmp/typed.jsonl "$dest/typed_${{ github.run_id }}.jsonl"
-          cp /tmp/cut/*.jsonl "$dest/" 2>/dev/null || true
           git config user.name "runner"; git config user.email "runner@users.noreply.github.com"
           git checkout -b "data/old-papers-${{ github.run_id }}"
           git add "$dest"
-          git commit -m "Typed old papers: $EXAM"
+          git commit -m "Typed old papers"
           git push origin "HEAD:refs/heads/data/old-papers-${{ github.run_id }}"
