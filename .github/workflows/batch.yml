@@ -49,12 +49,18 @@ jobs:
         with: { python-version: "3.12" }
       - run: pip install pymupdf pillow numpy google-genai anthropic
       - name: Download the sheets
-        run: python pipeline/pyq/fetch_old.py --exam "${{ github.event.inputs.exam }}" --years "${{ github.event.inputs.years }}" --lang "${{ github.event.inputs.lang }}" --out /tmp/sheets
+        run: |
+          python pipeline/pyq/fetch_old.py --exam "${{ github.event.inputs.exam }}" --years "${{ github.event.inputs.years }}" --lang "${{ github.event.inputs.lang }}" --out /tmp/sheets | tee /tmp/fetch.log
+          n=$(ls /tmp/sheets/*.pdf 2>/dev/null | wc -l)
+          if [ "$n" -eq 0 ]; then echo "::error::no sheets downloaded: $(tail -c 300 /tmp/fetch.log | tr '\n' ' ')"; exit 1; fi
+          echo "::notice::sheets downloaded: $n ($(head -c 200 /tmp/fetch.log | tr '\n' ' '))"
       - name: Cut the questions out of the pages
         run: |
           mkdir -p /tmp/cut
           ls /tmp/sheets/*.pdf | xargs -P 3 -I{} python -W ignore pipeline/pyq/old_sheets.py {} --out /tmp/cut
-          echo "questions cut: $(cat /tmp/cut/*.jsonl | wc -l)"
+          c=$(cat /tmp/cut/*.jsonl 2>/dev/null | wc -l)
+          if [ "$c" -eq 0 ]; then echo "::error::no questions cut from the sheets"; exit 1; fi
+          echo "::notice::questions cut: $c"
       - name: Type them
         run: python pipeline/pyq/transcribe.py /tmp/cut --out /tmp/typed.jsonl --backends "${{ github.event.inputs.backends }}" ${{ github.event.inputs.limit && format('--limit {0}', github.event.inputs.limit) || '' }}
         env:
@@ -66,6 +72,7 @@ jobs:
           import json, collections
           c = collections.Counter(json.loads(l)["status"] for l in open("/tmp/typed.jsonl") if l.strip())
           print(dict(c))
+          print("::notice::typed: " + str(dict(c)))
           PY
       - name: Keep the result in the private repository
         env:
