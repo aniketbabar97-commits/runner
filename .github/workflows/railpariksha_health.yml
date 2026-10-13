@@ -29,7 +29,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: aniketbabar97-commits/MahaPariksha
-          ref: ${{ github.event.inputs.ref || vars.SOURCE_REF || 'aniketai/relaxed-albattani-6kjmc7' }}
+          ref: ${{ vars.SOURCE_REF || 'aniketai/relaxed-albattani-6kjmc7' }}
           token: ${{ secrets.SOURCE_TOKEN }}
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -40,4 +40,3 @@ jobs:
           GH_TOKEN: ${{ secrets.SOURCE_TOKEN }}
           SOURCE_REPO: aniketbabar97-commits/MahaPariksha
           RUNNER_REPO: ${{ github.repository }}
-          RUNNER_REPO: ${{ vars.RUNNER_REPO }}
