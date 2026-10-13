@@ -1,0 +1,73 @@
+name: Hindi translation
+on:
+  workflow_dispatch:
+    inputs:
+      family:
+        description: File stem under content/pyq, e.g. rrb_group_d_typed
+        required: true
+      batches:
+        description: How many batches of 20 questions this run (the free plan is slow: about 60 questions a minute)
+        required: false
+        default: "10"
+      backend:
+        description: gemini or nllb
+        required: false
+        default: gemini
+      model:
+        description: Gemini model (empty = gemini-2.5-flash-lite)
+        required: false
+      ref:
+        description: Branch of the private repository (empty = its default branch)
+        required: false
+
+permissions:
+  contents: read
+
+env:
+  APP_DIR: ${{ secrets.APP_DIR }}
+  SOURCE_REPO: ${{ secrets.SOURCE_REPO }}
+  M1: ${{ secrets.M1 }}
+  M2: ${{ secrets.M2 }}
+
+jobs:
+  translate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    defaults:
+      run:
+        working-directory: ${{ env.APP_DIR }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPO }}
+          ref: ${{ github.event.inputs.ref || vars.SOURCE_REF || 'aniketai/relaxed-albattani-6kjmc7' }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install pillow google-genai
+      - name: Install the free translation model
+        if: ${{ github.event.inputs.backend == 'nllb' }}
+        run: pip install transformers sentencepiece torch --extra-index-url https://download.pytorch.org/whl/cpu
+      - name: Translate
+        run: |
+          python pipeline/pyq/translate.py export --family "${{ github.event.inputs.family }}" --out /tmp/tr --batch 20
+          python pipeline/pyq/translate_llm.py /tmp/tr --backend "${{ github.event.inputs.backend }}" --limit-batches "${{ github.event.inputs.batches }}" 2> /tmp/tr.err || true
+          echo "::notice::translated files: $(ls /tmp/tr/*.out.json 2>/dev/null | wc -l)"
+          echo "::notice::problems: $(sort /tmp/tr.err | uniq -c | head -3 | tr '\n' ' ')"
+          python pipeline/pyq/translate.py ingest /tmp/tr | sed 's/^/::notice::ingest: /'
+          python - <<'PY'
+          import json
+          rows = [json.loads(l) for l in open("pipeline/pyq/translations/${{ github.event.inputs.family }}.jsonl")][-3:]
+          for r in rows:
+              print("::notice::sample: " + r["q"][:160] + " | " + " / ".join(o[:25] for o in r["o"]))
+          PY
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ github.event.inputs.model || 'gemini-2.5-flash-lite' }}
+      - name: Keep the new translations in the private repository
+        run: |
+          git config user.name "runner"; git config user.email "runner@users.noreply.github.com"
+          git checkout -b "data/hindi-${{ github.run_id }}"
+          git add pipeline/pyq/translations
+          git commit -m "Hindi translations"
+          git push origin "HEAD:refs/heads/data/hindi-${{ github.run_id }}"
