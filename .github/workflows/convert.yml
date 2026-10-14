@@ -14,11 +14,11 @@ on:
         required: false
         default: "0"
       backend:
-        description: gemini, nllb, indictrans2 or google
+        description: gemini, nllb, indictrans2, google or grok
         required: false
         default: gemini
       model:
-        description: Gemini model (empty = gemini-2.5-flash-lite)
+        description: Gemini or Grok model (empty = gemini-2.5-flash-lite or grok-3-mini)
         required: false
       ref:
         description: Branch of the private repository (empty = its default branch)
@@ -76,6 +76,8 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ github.event.inputs.model || 'gemini-2.5-flash-lite' }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
+          GROK_MODEL: ${{ github.event.inputs.model }}
       - name: Keep the new translations in the private repository
         run: |
           git config user.name "runner"; git config user.email "runner@users.noreply.github.com"
