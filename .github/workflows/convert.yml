@@ -61,6 +61,7 @@ jobs:
           python pipeline/pyq/translate_llm.py /tmp/tr --backend "${{ github.event.inputs.backend }}" --start-batch "${{ github.event.inputs.start }}" --limit-batches "${{ github.event.inputs.batches }}" 2> /tmp/tr.err || true
           echo "::notice::translated files: $(ls /tmp/tr/*.out.json 2>/dev/null | wc -l)"
           echo "::notice::problems: $(sort /tmp/tr.err | uniq -c | head -3 | tr '\n' ' ')"
+          tail -n 25 /tmp/tr.err | sed 's/^/err: /' || true
           python pipeline/pyq/translate.py ingest /tmp/tr | sed 's/^/::notice::ingest: /'
           python - <<'PY'
           import json
