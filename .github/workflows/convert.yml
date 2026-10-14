@@ -14,7 +14,7 @@ on:
         required: false
         default: "0"
       backend:
-        description: gemini or nllb
+        description: gemini, nllb or indictrans2
         required: false
         default: gemini
       model:
@@ -52,6 +52,9 @@ jobs:
       - name: Install the free translation model
         if: ${{ github.event.inputs.backend == 'nllb' }}
         run: pip install transformers sentencepiece torch --extra-index-url https://download.pytorch.org/whl/cpu
+      - name: Install IndicTrans2
+        if: ${{ github.event.inputs.backend == 'indictrans2' }}
+        run: pip install "transformers==4.44.2" sentencepiece sacremoses IndicTransToolkit torch --extra-index-url https://download.pytorch.org/whl/cpu
       - name: Translate
         run: |
           python pipeline/pyq/translate.py export --family "${{ github.event.inputs.family }}" --out /tmp/tr --batch 20
@@ -68,6 +71,7 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ github.event.inputs.model || 'gemini-2.5-flash-lite' }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
       - name: Keep the new translations in the private repository
         run: |
           git config user.name "runner"; git config user.email "runner@users.noreply.github.com"
