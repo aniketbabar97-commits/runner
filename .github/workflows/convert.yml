@@ -14,7 +14,7 @@ on:
         required: false
         default: "0"
       backend:
-        description: gemini, nllb or indictrans2
+        description: gemini, nllb, indictrans2 or google
         required: false
         default: gemini
       model:
@@ -52,6 +52,9 @@ jobs:
       - name: Install the free translation model
         if: ${{ github.event.inputs.backend == 'nllb' }}
         run: pip install transformers sentencepiece torch --extra-index-url https://download.pytorch.org/whl/cpu
+      - name: Install Google translate package
+        if: ${{ github.event.inputs.backend == 'google' }}
+        run: pip install deep-translator
       - name: Install IndicTrans2
         if: ${{ github.event.inputs.backend == 'indictrans2' }}
         run: pip install "transformers==4.44.2" sentencepiece sacremoses IndicTransToolkit torch --extra-index-url https://download.pytorch.org/whl/cpu
