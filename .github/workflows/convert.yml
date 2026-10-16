@@ -14,11 +14,11 @@ on:
         required: false
         default: "0"
       backend:
-        description: gemini or nllb
+        description: gemini, nllb, indictrans2, google or grok
         required: false
         default: gemini
       model:
-        description: Gemini model (empty = gemini-2.5-flash-lite)
+        description: Gemini or Grok model (empty = gemini-2.5-flash-lite or grok-3-mini)
         required: false
       ref:
         description: Branch of the private repository (empty = its default branch)
@@ -52,12 +52,19 @@ jobs:
       - name: Install the free translation model
         if: ${{ github.event.inputs.backend == 'nllb' }}
         run: pip install transformers sentencepiece torch --extra-index-url https://download.pytorch.org/whl/cpu
+      - name: Install Google translate package
+        if: ${{ github.event.inputs.backend == 'google' }}
+        run: pip install deep-translator
+      - name: Install IndicTrans2
+        if: ${{ github.event.inputs.backend == 'indictrans2' }}
+        run: pip install "transformers==4.44.2" sentencepiece sacremoses IndicTransToolkit torch --extra-index-url https://download.pytorch.org/whl/cpu
       - name: Translate
         run: |
           python pipeline/pyq/translate.py export --family "${{ github.event.inputs.family }}" --out /tmp/tr --batch 20
           python pipeline/pyq/translate_llm.py /tmp/tr --backend "${{ github.event.inputs.backend }}" --start-batch "${{ github.event.inputs.start }}" --limit-batches "${{ github.event.inputs.batches }}" 2> /tmp/tr.err || true
           echo "::notice::translated files: $(ls /tmp/tr/*.out.json 2>/dev/null | wc -l)"
           echo "::notice::problems: $(sort /tmp/tr.err | uniq -c | head -3 | tr '\n' ' ')"
+          tail -n 25 /tmp/tr.err | sed 's/^/err: /' || true
           python pipeline/pyq/translate.py ingest /tmp/tr | sed 's/^/::notice::ingest: /'
           python - <<'PY'
           import json
@@ -68,6 +75,9 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ github.event.inputs.model || 'gemini-2.5-flash-lite' }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
+          GROK_MODEL: ${{ github.event.inputs.model }}
       - name: Keep the new translations in the private repository
         run: |
           git config user.name "runner"; git config user.email "runner@users.noreply.github.com"

@@ -145,7 +145,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Boot emulator and run the golden-path e2e test in release mode
-        timeout-minutes: 15
+        timeout-minutes: 30
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
@@ -154,7 +154,7 @@ jobs:
           force-avd-creation: false
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          script: cd ${{ env.APP_DIR }}/app && flutter drive --driver=test_driver/integration_test.dart --target=integration_test/golden_path_test.dart -d emulator-5554 --profile
+          script: cd ${{ env.APP_DIR }}/app && flutter drive --driver=test_driver/integration_test.dart --target=integration_test/golden_path_test.dart -d emulator-5554 --profile && flutter drive --driver=test_driver/integration_test.dart --target=integration_test/full_tour_test.dart -d emulator-5554 --profile
 
   report:
     runs-on: ubuntu-latest
