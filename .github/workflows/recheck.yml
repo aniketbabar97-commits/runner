@@ -9,7 +9,7 @@ on:
       batches:
         description: "How many batches of 50 this run (0 = all)"
         required: false
-        default: "0"
+        default: "60"
       start:
         description: "Skip this many batches first"
         required: false
@@ -51,7 +51,7 @@ jobs:
         run: |
           python pipeline/bank_audit.py export --subjects "${{ github.event.inputs.subjects }}" --out /tmp/ba --batch 50
           LIMIT="${{ github.event.inputs.batches }}"; [ "$LIMIT" = "0" ] && LIMIT=100000
-          python pipeline/pyq/explain_llm.py /tmp/ba --start-batch "${{ github.event.inputs.start }}" --limit-batches "$LIMIT" 2> /tmp/ba.err || true
+          timeout 270m python pipeline/pyq/explain_llm.py /tmp/ba --start-batch "${{ github.event.inputs.start }}" --limit-batches "$LIMIT" 2> /tmp/ba.err || true
           echo "::notice::solved files: $(ls /tmp/ba/*.out.json 2>/dev/null | wc -l)"
           echo "::notice::problems: $(sort /tmp/ba.err | uniq -c | head -3 | tr '\n' ' ')"
           python pipeline/bank_audit.py collect /tmp/ba | sed 's/^/::notice::/'
@@ -60,9 +60,11 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ github.event.inputs.model || 'gemini-2.5-flash' }}
       - name: Keep the flags in the private repository
+        if: always()
         run: |
           git config user.name "runner"; git config user.email "runner@users.noreply.github.com"
           git checkout -b "data/bank-audit-${{ github.run_id }}"
+          python pipeline/bank_audit.py collect /tmp/ba >/dev/null 2>&1 || true
           git add pipeline/bank_audit
           git commit -m "Bank audit flags" || exit 0
           git push origin "HEAD:refs/heads/data/bank-audit-${{ github.run_id }}"
