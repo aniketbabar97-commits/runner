@@ -6,7 +6,7 @@ on:
         description: Which post to send now
         type: choice
         default: announce
-        options: [announce, setup, refresh, ca, quiz, poll_morning, fact, poll_noon, tip, poll_evening, weekly]
+        options: [announce, setup, refresh, ca, quiz, poll_morning, fact, poll_noon, tip, poll_evening, weekly, monthly]
       text:
         description: Text for "announce" (plain text, sent as written)
         required: false
@@ -62,6 +62,10 @@ jobs:
       - if: steps.slot.outputs.have == 'true'
         uses: actions/setup-python@v5
         with: { python-version: "3.12" }
+      - if: steps.slot.outputs.have == 'true' && (steps.slot.outputs.slot == 'monthly' || steps.slot.outputs.slot == 'fact')
+        run: |
+          sudo apt-get install -y --no-install-recommends libraqm0 || true
+          pip install pillow
       - if: steps.slot.outputs.have == 'true'
         run: python "$APP_DIR/pipeline/telegram_bot.py" --slot "${{ steps.slot.outputs.slot }}" ${ANNOUNCE:+--text "$ANNOUNCE"}
         env:
