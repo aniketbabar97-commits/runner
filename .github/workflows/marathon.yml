@@ -1,0 +1,56 @@
+name: marathon video
+on:
+  workflow_dispatch:
+    inputs:
+      exam:
+        description: Exam name as it starts the PYQ label
+        default: "RRB Group D"
+      year:
+        description: Paper year
+        default: "2025"
+      subjects:
+        description: Comma-separated subjects
+        default: "gk,science"
+      count:
+        description: Number of questions
+        default: "20"
+      seed:
+        description: Change for a different set of questions
+        default: "marathon-1"
+
+permissions:
+  contents: read
+
+env:
+  APP_DIR: ${{ secrets.APP_DIR }}
+  SOURCE_REPO: ${{ secrets.SOURCE_REPO }}
+  M1: ${{ secrets.M1 }}
+  M2: ${{ secrets.M2 }}
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPO }}
+          ref: ${{ vars.SOURCE_REF || 'main' }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Video tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg libraqm0
+      - run: pip install -q pillow requests gtts edge-tts
+      - name: Render
+        run: python "$APP_DIR/pipeline/marathon.py" --exam "${{ inputs.exam }}" --year "${{ inputs.year }}" --subjects "${{ inputs.subjects }}" --count "${{ inputs.count }}" --seed "${{ inputs.seed }}" --out out
+      - name: Attach to the private repository's "videos" release
+        env:
+          GH_TOKEN: ${{ secrets.SOURCE_TOKEN }}
+        run: |
+          name="marathon-$(echo '${{ inputs.exam }}-${{ inputs.year }}-${{ inputs.subjects }}-${{ inputs.seed }}' | tr ' ,' '__')"
+          cp out/marathon.mp4 "$name.mp4"; cp out/thumbnail.png "$name.png"; cp out/upload.txt "$name.txt"
+          gh release view videos --repo "$SOURCE_REPO" >/dev/null 2>&1 || gh release create videos --repo "$SOURCE_REPO" --prerelease --title "Videos to upload" --notes "Long-form YouTube videos: download the .mp4, the .png thumbnail and copy title/description from the .txt."
+          gh release upload videos --repo "$SOURCE_REPO" "$name.mp4" "$name.png" "$name.txt" --clobber
+          echo "::notice::attached $name.mp4"
