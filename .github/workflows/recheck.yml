@@ -9,15 +9,19 @@ on:
       batches:
         description: "How many batches of 50 this run (0 = all)"
         required: false
-        default: "60"
+        default: "0"
       start:
         description: "Skip this many batches first"
         required: false
         default: "0"
       model:
-        description: Gemini model
+        description: Gemini model (flash-lite allows ~1,000 requests a day on the free plan, flash ~250)
         required: false
-        default: "gemini-2.5-flash"
+        default: "gemini-2.5-flash-lite"
+      chunk:
+        description: Questions per request (bigger = fewer requests against the daily free quota)
+        required: false
+        default: "25"
       ref:
         description: Branch of the private repository (empty = its default branch)
         required: false
@@ -51,14 +55,14 @@ jobs:
         run: |
           python pipeline/bank_audit.py export --subjects "${{ github.event.inputs.subjects }}" --out /tmp/ba --batch 50
           LIMIT="${{ github.event.inputs.batches }}"; [ "$LIMIT" = "0" ] && LIMIT=100000
-          timeout 270m python pipeline/pyq/explain_llm.py /tmp/ba --start-batch "${{ github.event.inputs.start }}" --limit-batches "$LIMIT" 2> /tmp/ba.err || true
+          timeout 270m python pipeline/pyq/explain_llm.py /tmp/ba --start-batch "${{ github.event.inputs.start }}" --limit-batches "$LIMIT" --chunk "${{ github.event.inputs.chunk || 25 }}" 2> /tmp/ba.err || true
           echo "::notice::solved files: $(ls /tmp/ba/*.out.json 2>/dev/null | wc -l)"
           echo "::notice::problems: $(sort /tmp/ba.err | uniq -c | head -3 | tr '\n' ' ')"
           python pipeline/bank_audit.py collect /tmp/ba | sed 's/^/::notice::/'
         continue-on-error: true
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: ${{ github.event.inputs.model || 'gemini-2.5-flash' }}
+          GEMINI_MODEL: ${{ github.event.inputs.model || 'gemini-2.5-flash-lite' }}
       - name: Keep the flags in the private repository
         if: always()
         run: |
