@@ -1,0 +1,49 @@
+name: store screenshots
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  APP_DIR: ${{ secrets.APP_DIR }}
+  SOURCE_REPO: ${{ secrets.SOURCE_REPO }}
+  M1: ${{ secrets.M1 }}
+  M2: ${{ secrets.M2 }}
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPO }}
+          ref: ${{ vars.SOURCE_REF || 'main' }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: subosito/flutter-action@v2
+        with: { channel: stable, cache: true }
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq libraqm0 zip
+      - run: pip install -q pillow
+      - run: python "$APP_DIR/pipeline/build_bundle.py"
+      - working-directory: ${{ env.APP_DIR }}/app
+        run: |
+          flutter pub get
+          STORE_SHOTS_DIR=/tmp/raw-hi STORE_SHOTS_LANG=hi flutter test test/store_shots_test.dart
+          STORE_SHOTS_DIR=/tmp/raw-en STORE_SHOTS_LANG=en flutter test test/store_shots_test.dart
+      - run: |
+          python "$APP_DIR/pipeline/store_shots.py" --raw /tmp/raw-hi --lang hi
+          python "$APP_DIR/pipeline/store_shots.py" --raw /tmp/raw-en --lang en
+          cd "$GITHUB_WORKSPACE/$APP_DIR/docs/store/play_console_assets"
+          zip -j /tmp/screenshots-hi.zip screenshots/*.png
+          zip -j /tmp/screenshots-en.zip screenshots_en/*.png
+      - name: Attach to the private repository's "store-shots" release
+        env:
+          GH_TOKEN: ${{ secrets.SOURCE_TOKEN }}
+        run: |
+          gh release view store-shots --repo "$SOURCE_REPO" >/dev/null 2>&1 || gh release create store-shots --repo "$SOURCE_REPO" --prerelease --title "Play Store screenshots" --notes "screenshots-hi.zip for the Hindi listing, screenshots-en.zip for the English listing. Upload in file order (1 to 7)."
+          gh release upload store-shots --repo "$SOURCE_REPO" /tmp/screenshots-hi.zip /tmp/screenshots-en.zip --clobber
+          echo "::notice::attached screenshots-hi.zip and screenshots-en.zip"
