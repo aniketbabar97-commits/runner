@@ -1,1 +1,76 @@
-PLACEHOLDER
+name: Shorts
+on:
+  workflow_dispatch:
+    inputs:
+      slot:
+        description: Which slot of the day (1 = 07:00 ... 6 = 22:00 IST)
+        type: choice
+        options: ["1", "2", "3", "4", "5", "6"]
+        default: "1"
+      lang:
+        description: Language (auto alternates, and flips every day)
+        type: choice
+        options: [auto, hi, en]
+        default: auto
+      force:
+        description: Run even if the same slot already ran in the last hour (normally that is skipped, so nothing is uploaded twice)
+        type: boolean
+        default: false
+run-name: Shorts ${{ inputs.slot }} ${{ inputs.lang }}
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: shorts
+  cancel-in-progress: false
+env:
+  APP_DIR: ${{ secrets.APP_DIR }}
+  SOURCE_REPO: ${{ secrets.SOURCE_REPO }}
+  M1: ${{ secrets.M1 }}
+  M2: ${{ secrets.M2 }}
+
+jobs:
+  short:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+      YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+      YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+      TELEGRAM_URL: ${{ vars.TELEGRAM_URL }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      SLOT: ${{ github.event.inputs.slot }}
+      SHORTS_VOICE_HI: ${{ vars.SHORTS_VOICE_HI }}
+      SHORTS_VOICE_EN: ${{ vars.SHORTS_VOICE_EN }}
+      LANG_CHOICE: ${{ github.event.inputs.lang || 'auto' }}
+    steps:
+      - id: dup
+        if: ${{ inputs.force != true }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          since=$(date -u -d '55 minutes ago' +%Y-%m-%dT%H:%M:%SZ)
+          name="Shorts ${{ inputs.slot }} ${{ inputs.lang }}"
+          n=""; for try in 1 2 3; do n=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/shorts.yml/runs?created=%3E%3D$since&per_page=50" --jq "[.workflow_runs[] | select(.display_title==\"$name\" and .id < $GITHUB_RUN_ID) | select(.status!=\"completed\" or .conclusion==\"success\")] | length") && break; n=""; sleep 5; done; n=${n:-0}
+          if [ "$n" -gt 0 ]; then
+            echo "::warning::\"$name\" already ran in the last 55 minutes; skipping so nothing is uploaded twice (tick force to run anyway)"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.dup.outputs.skip != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPO }}
+          ref: ${{ vars.SOURCE_REF || 'aniketai/relaxed-albattani-6kjmc7' }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+          persist-credentials: false
+      - if: steps.dup.outputs.skip != 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - if: steps.dup.outputs.skip != 'true'
+        run: for i in 1 2 3; do sudo timeout 240 apt-get update -qq && sudo timeout 240 apt-get install -y -qq ffmpeg libraqm0 && break; [ $i = 3 ] && exit 1; sleep 10; done
+      - if: steps.dup.outputs.skip != 'true'
+        run: pip install -q pillow requests gtts edge-tts
+      - if: steps.dup.outputs.skip != 'true'
+        run: python "$APP_DIR/pipeline/shorts.py" --slot "$SLOT" --lang "$LANG_CHOICE" --out short_out
