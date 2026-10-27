@@ -78,6 +78,30 @@ jobs:
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: cd ${{ env.APP_DIR }}/app && flutter drive --driver=test_driver/integration_test.dart --target=integration_test/golden_path_test.dart -d emulator-5554 --profile --dart-define=USE_TEST_ADS=false
+      - name: Run the same e2e test on Android 15 (edge-to-edge enforced)
+        timeout-minutes: 20
+        continue-on-error: true  # a report for now, not a release gate
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          force-avd-creation: false
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: cd ${{ env.APP_DIR }}/app && (mv screenshots screenshots-api34 2>/dev/null || true) && flutter drive --driver=test_driver/integration_test.dart --target=integration_test/golden_path_test.dart -d emulator-5554 --profile --dart-define=USE_TEST_ADS=false && mv screenshots screenshots-api35
+      - name: Save the Android 15 screenshots for review
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.SOURCE_TOKEN }}
+        run: |
+          cd "$GITHUB_WORKSPACE/$APP_DIR/app"
+          d=""; for c in screenshots-api35 screenshots; do [ -d "$c" ] && ls "$c"/*.png >/dev/null 2>&1 && d="$c" && break; done
+          [ -n "$d" ] || { echo "no Android 15 screenshots"; exit 0; }
+          tmp=$(mktemp -d); cp "$d"/*.png "$tmp"/; cd "$tmp"
+          git init -q -b shots && git add . && git -c user.name=runner -c user.email=runner@users.noreply.github.com commit -qm "e2e screenshots on Android 15 (run ${{ github.run_id }})"
+          git push -q "https://x-access-token:${GH_TOKEN}@github.com/${SOURCE_REPO}.git" HEAD:refs/heads/data/e2e-api35-${{ github.run_id }}
+          echo "::notice::Android 15 screenshots on branch data/e2e-api35-${{ github.run_id }}"
       - name: Attach the AAB and APK to a release in the private repository
         env:
           GH_TOKEN: ${{ secrets.SOURCE_TOKEN }}
