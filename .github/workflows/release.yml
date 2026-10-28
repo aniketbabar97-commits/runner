@@ -40,9 +40,10 @@ jobs:
         with: { python-version: "3.12" }
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: "17" }
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with: { channel: stable, cache: true }
       - run: python ../pipeline/build_bundle.py --pyq-full ../pyq_pack
+      - run: python ../pipeline/seal_assets.py
       - name: Set up signing
         env:
           KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -55,8 +56,8 @@ jobs:
           printf 'storeFile=../upload.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' "$STORE_PW" "$ALIAS" "$KEY_PW" > android/key.properties
       - name: Version code from the clock
         run: echo "BUILD_NUMBER=$(( ($(date -u +%s) - 1790000000) / 60 ))" >> $GITHUB_ENV
-      - run: flutter build appbundle --release --build-number=$BUILD_NUMBER --dart-define=USE_TEST_ADS=false --dart-define=TELEGRAM_URL=${{ vars.TELEGRAM_URL }}
-      - run: flutter build apk --release --build-number=$BUILD_NUMBER --dart-define=USE_TEST_ADS=false --dart-define=TELEGRAM_URL=${{ vars.TELEGRAM_URL }}
+      - run: flutter build appbundle --release --build-number=$BUILD_NUMBER --obfuscate --split-debug-info=build/symbols --dart-define=USE_TEST_ADS=false --dart-define=TELEGRAM_URL=${{ vars.TELEGRAM_URL }}
+      - run: flutter build apk --release --build-number=$BUILD_NUMBER --obfuscate --split-debug-info=build/symbols --dart-define=USE_TEST_ADS=false --dart-define=TELEGRAM_URL=${{ vars.TELEGRAM_URL }}
       - name: Free disk space for the emulator's AVD
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/lib/android/sdk/ndk
@@ -69,7 +70,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
       - name: Boot emulator and run the golden-path e2e test against the signed build
         timeout-minutes: 15
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
           api-level: 34
           arch: x86_64
@@ -81,7 +82,7 @@ jobs:
       - name: Run the same e2e test on Android 15 (edge-to-edge enforced)
         timeout-minutes: 20
         continue-on-error: true  # a report for now, not a release gate
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
           api-level: 35
           arch: x86_64
@@ -111,11 +112,12 @@ jobs:
           cd "$GITHUB_WORKSPACE/$APP_DIR/app/build/app/outputs"
           cp bundle/release/app-release.aab "build-$BUILD_NUMBER.aab"
           cp flutter-apk/app-release.apk "build-$BUILD_NUMBER.apk"
-          gh release create "$tag" --repo "$SOURCE_REPO" --prerelease --title "Build $BUILD_NUMBER" --notes "Built on the runner repository (no Actions minutes used here). Signed with the upload key." "build-$BUILD_NUMBER.aab" "build-$BUILD_NUMBER.apk"
+          (cd "$GITHUB_WORKSPACE/$APP_DIR/app/build/symbols" && zip -qr - .) > "symbols-$BUILD_NUMBER.zip"
+          gh release create "$tag" --repo "$SOURCE_REPO" --prerelease --title "Build $BUILD_NUMBER" --notes "Built on the runner repository (no Actions minutes used here). Signed with the upload key." "build-$BUILD_NUMBER.aab" "build-$BUILD_NUMBER.apk" "symbols-$BUILD_NUMBER.zip"
           echo "release $tag created in the private repository"
       - name: Upload to Google Play
         if: ${{ env.PLAY_JSON != '' }}
-        uses: r0adkll/upload-google-play@v1
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
           packageName: ${{ secrets.PKG_NAME }}
