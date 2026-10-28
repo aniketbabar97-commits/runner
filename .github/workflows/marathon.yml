@@ -41,7 +41,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - name: Video tools
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg libraqm0
+        run: (sudo apt-get update -qq || true) && sudo apt-get install -y -qq ffmpeg libraqm0
       - run: pip install -q pillow requests gtts edge-tts
       - name: Render
         run: python "$APP_DIR/pipeline/marathon.py" --exam "${{ inputs.exam }}" --year "${{ inputs.year }}" --subjects "${{ inputs.subjects }}" --count "${{ inputs.count }}" --seed "${{ inputs.seed }}" --out out

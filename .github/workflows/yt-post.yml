@@ -34,6 +34,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: sudo apt-get update -qq && sudo apt-get install -y -qq libraqm0
+      - run: (sudo apt-get update -qq || true) && sudo apt-get install -y -qq libraqm0
       - run: pip install -q pillow requests
       - run: python "$APP_DIR/pipeline/yt_post.py" "${{ inputs.name }}"
