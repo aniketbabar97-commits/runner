@@ -62,7 +62,7 @@ jobs:
       - if: steps.slot.outputs.have == 'true'
         uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - if: steps.slot.outputs.have == 'true' && (steps.slot.outputs.slot == 'monthly' || steps.slot.outputs.slot == 'fact')
+      - if: steps.slot.outputs.have == 'true' && (steps.slot.outputs.slot == 'monthly' || steps.slot.outputs.slot == 'fact' || steps.slot.outputs.slot == 'weekly')
         run: |
           sudo apt-get install -y --no-install-recommends libraqm0 || true
           pip install pillow
