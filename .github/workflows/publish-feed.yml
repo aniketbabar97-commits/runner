@@ -37,4 +37,5 @@ jobs:
           git add data/8a9bd92d30c1/f.json
           if git diff --cached --quiet; then echo "feed unchanged"; exit 0; fi
           git commit -m "Publish current-affairs feed"
-          git push
+          # another job can push to main at the same moment: rebase on it and try again (12 Nov feed was lost to this)
+          for i in 1 2 3; do git push && exit 0; git pull --rebase -q; done; exit 1
