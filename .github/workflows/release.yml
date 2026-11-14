@@ -41,7 +41,7 @@ jobs:
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: "17" }
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
-        with: { channel: stable, cache: true }
+        with: { channel: stable, flutter-version: 3.47.9, cache: true }  # pinned: 3.48 (13 Nov 2026) deprecates material.dart and needs AGP 9.1.1
       - run: python ../pipeline/build_bundle.py --pyq-full ../pyq_pack
       - run: python ../pipeline/seal_assets.py
       - name: Set up signing

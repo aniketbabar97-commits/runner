@@ -25,7 +25,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
-        with: { channel: stable, cache: true }
+        with: { channel: stable, flutter-version: 3.47.9, cache: true }  # pinned: 3.48 (13 Nov 2026) deprecates material.dart and needs AGP 9.1.1
       - run: (sudo apt-get update -qq || true) && sudo apt-get install -y -qq libraqm0 zip
       - run: pip install -q pillow
       - run: python "$APP_DIR/pipeline/build_bundle.py"
