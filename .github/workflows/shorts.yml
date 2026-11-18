@@ -16,7 +16,11 @@ on:
         description: Run even if the same slot already ran in the last hour (normally that is skipped, so nothing is uploaded twice)
         type: boolean
         default: false
-run-name: Shorts ${{ inputs.slot }} ${{ inputs.lang }}
+      long:
+        description: Make the full-paper long video (long_video.py) instead of this slot's Short
+        type: boolean
+        default: false
+run-name: Shorts ${{ inputs.slot }} ${{ inputs.lang }}${{ inputs.long && ' long' || '' }}
 permissions:
   contents: read
   actions: read
@@ -32,7 +36,7 @@ env:
 jobs:
   short:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 75   # a Sunday or one-off long video renders 25 questions
     env:
       YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
       YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
@@ -44,6 +48,7 @@ jobs:
       SHORTS_VOICE_HI: ${{ vars.SHORTS_VOICE_HI }}
       SHORTS_VOICE_EN: ${{ vars.SHORTS_VOICE_EN }}
       LANG_CHOICE: ${{ github.event.inputs.lang || 'auto' }}
+      LONG_VIDEO: ${{ inputs.long && '1' || '' }}
     steps:
       - id: dup
         if: ${{ inputs.force != true }}
