@@ -1,0 +1,28 @@
+{
+ "version": 202611201017,
+ "fixes": [
+  {
+   "id": "rp-mat-g204516",
+   "s": "maths",
+   "t": "profit_loss",
+   "d": 1,
+   "q_hi": "निम्न में से कौन सा कथन हमेशा सत्य है?",
+   "q_en": "Which of the following statements is always true?",
+   "o_hi": [
+    "छूट हमेशा अंकित मूल्य पर दी जाती है",
+    "लाभ की गणना हमेशा विक्रय मूल्य पर की जाती है",
+    "विक्रय मूल्य हमेशा क्रय मूल्य से अधिक होता है",
+    "हानि हमेशा क्रय मूल्य के बराबर होती है"
+   ],
+   "o_en": [
+    "Discount is always given on marked price",
+    "Profit is always calculated on the selling price",
+    "Selling price is always higher than cost price",
+    "Loss is always equal to cost price"
+   ],
+   "a": 0,
+   "e_hi": "छूट की गणना हमेशा वस्तु पर छपे अंकित मूल्य (Marked Price) पर की जाती है। लाभ और हानि का प्रतिशत क्रय मूल्य पर निकाला जाता है (विक्रय मूल्य पर नहीं), और विक्रय मूल्य क्रय मूल्य से तभी अधिक होता है जब लाभ हो।",
+   "e_en": "Discount is always calculated on the marked price printed on the item. Profit and loss percentages are worked out on the cost price (not the selling price), and the selling price is higher than the cost price only when there is a profit."
+  }
+ ]
+}
